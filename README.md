@@ -1,4 +1,5 @@
-Pyrat Brute-Force Script
+# Pyrat Brute-Force Script
+
 Specific Use Conditions: designed specifically for pyrat CTF room - THM
 Designed for a TCP connections with interactive authentication, where the server 
   1. prompts for a password following a username input
